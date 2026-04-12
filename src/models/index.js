@@ -7,4 +7,7 @@ module.exports = {
   School: require('./School'),
   MissionTemplate: require('./MissionTemplate'),
   Submission: require('./Submission'),
+  Block: require('./Block'),
+  BuildingTemplate: require('./BuildingTemplate'),
+  BlockEvent: require('./BlockEvent'),
 };
