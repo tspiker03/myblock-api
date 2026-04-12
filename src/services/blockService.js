@@ -3,6 +3,7 @@
 const { Block, BuildingTemplate, User } = require('../models');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const economyService = require('./economyService');
+const feedService = require('./feedService');
 
 const GRID_SIZE = 10;
 const EXPANSION_THRESHOLD = 6000;
@@ -143,6 +144,9 @@ async function placeBuilding(userId, buildingTemplateId, col, row) {
   block.markModified('plots');
   await block.save();
 
+  // Feed entry — fire-and-forget
+  feedService.createBuildingFeedEntry(userId, template.name, 'placed').catch(() => {});
+
   return block;
 }
 
@@ -182,6 +186,9 @@ async function upgradeBuilding(userId, col, row) {
   await _recalculatePopulation(block);
   block.markModified('plots');
   await block.save();
+
+  // Feed entry — fire-and-forget
+  feedService.createBuildingFeedEntry(userId, template.name, 'upgraded').catch(() => {});
 
   return block;
 }

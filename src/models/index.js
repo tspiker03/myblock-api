@@ -10,4 +10,10 @@ module.exports = {
   Block: require('./Block'),
   BuildingTemplate: require('./BuildingTemplate'),
   BlockEvent: require('./BlockEvent'),
+  FeedEntry: require('./FeedEntry'),
+  Leaderboard: require('./Leaderboard'),
+  CivicTask: require('./CivicTask'),
+  CivicTaskCompletion: require('./CivicTaskCompletion'),
+  Season: require('./Season'),
+  QuickRep: require('./QuickRep'),
 };

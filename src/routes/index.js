@@ -12,5 +12,11 @@ router.use('/blocks', require('./blocks'));
 router.use('/buildings', require('./buildings'));
 router.use('/economy', require('./economy'));
 router.use('/events', require('./events'));
+router.use('/feed', require('./feed'));
+router.use('/leaderboards', require('./leaderboards'));
+router.use('/neighborhoods', require('./neighborhoods'));
+router.use('/civic-tasks', require('./civic-tasks'));
+router.use('/seasons', require('./seasons'));
+router.use('/quick-reps', require('./quick-reps'));
 
 module.exports = router;

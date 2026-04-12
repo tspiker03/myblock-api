@@ -3,6 +3,7 @@
 const { Submission, User, MissionTemplate } = require('../models');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const { POINT_VALUES } = require('../utils/constants');
+const feedService = require('./feedService');
 
 /**
  * Atomic lock-in: create Submission then use findOneAndUpdate to claim activeMissionId.
@@ -110,6 +111,9 @@ async function _approve(submission, approverId) {
   await submission.save();
   await awardPoints(submission.userId, submission.tier, submission.pillar);
   await User.findByIdAndUpdate(submission.userId, { activeMissionId: null });
+
+  // Feed entry — fire-and-forget, don't let feed errors break approval
+  feedService.createMissionCompleteFeedEntry(submission).catch(() => {});
 }
 
 async function rejectMission(submissionId, rejectorId, reason) {

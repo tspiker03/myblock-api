@@ -15,20 +15,16 @@ const routes = require('./routes');
 const errorHandler = require('./middleware/errorHandler');
 const { generalLimiter } = require('./middleware/rateLimiter');
 const logger = require('./utils/logger');
+const socketService = require('./services/socketService');
 
 const app = express();
 const server = http.createServer(app);
 
-// Socket.io stub
+// Socket.io — initialize with room management and optional Redis adapter
 const io = new SocketIO(server, {
   cors: { origin: '*' },
 });
-io.on('connection', (socket) => {
-  logger.info('Socket connected', { socketId: socket.id });
-  socket.on('disconnect', () => {
-    logger.info('Socket disconnected', { socketId: socket.id });
-  });
-});
+socketService.init(io);
 app.set('io', io);
 
 // Global middleware

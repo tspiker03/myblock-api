@@ -3,6 +3,7 @@
 const { User, Team } = require('../models');
 const { ValidationError, NotFoundError, ForbiddenError } = require('../utils/errors');
 const { PILLARS, GIFT_RECEIVE_WEEKLY_CAP } = require('../utils/constants');
+const feedService = require('./feedService');
 
 function _currentWeekKey() {
   const now = new Date();
@@ -99,6 +100,9 @@ async function giftPoints(senderId, recipientId, pillar, amount) {
         };
 
   await User.findByIdAndUpdate(recipientId, giftingUpdate);
+
+  // Feed entry — fire-and-forget
+  feedService.createGiftFeedEntry(senderId, recipientId, pillar, amount).catch(() => {});
 
   return { senderId, recipientId, pillar, amount };
 }
