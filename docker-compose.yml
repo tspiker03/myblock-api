@@ -1,0 +1,90 @@
+version: '3.9'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: myblock-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: devpassword
+      MONGO_INITDB_DATABASE: myblock_dev
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: myblock-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+  api:
+    build:
+      context: .
+      target: builder
+    container_name: myblock-api
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      MONGODB_URI: mongodb://admin:devpassword@mongodb:27017/myblock_dev?authSource=admin
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-jwt-secret-not-for-production
+      JWT_REFRESH_SECRET: dev-jwt-refresh-secret-not-for-production
+      CORS_ORIGIN: 'http://localhost:5173,http://localhost:8080'
+    volumes:
+      - ./src:/app/src:ro
+    command: node src/index.js
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # Optional: Mongo Express UI — run with: docker compose --profile tools up
+  mongo-express:
+    image: mongo-express:latest
+    container_name: myblock-mongo-express
+    restart: unless-stopped
+    profiles:
+      - tools
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - '8081:8081'
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: devpassword
+      ME_CONFIG_MONGODB_URL: mongodb://admin:devpassword@mongodb:27017/
+      ME_CONFIG_BASICAUTH: 'false'
+
+volumes:
+  mongo_data:
+  redis_data:

@@ -1,0 +1,9 @@
+node_modules
+.git
+.env*
+coverage
+tests
+*.md
+jest.config.js
+docker-compose.yml
+docker/

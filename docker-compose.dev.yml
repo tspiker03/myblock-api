@@ -1,0 +1,119 @@
+# docker-compose.dev.yml
+# ─────────────────────────────────────────────────────────
+# Runs on the dev (and staging) Droplet.
+#
+# Services:
+#   api     — myblock-api image from DOCR
+#   admin   — myblock-admin image from DOCR
+#   redis   — local Redis (Alpine), not managed
+#   nginx   — reverse proxy for both subdomains + SSL termination
+#
+# MongoDB is NOT here — uses the DO Managed cluster.
+# Connection string lives in .env on the Droplet.
+#
+# Usage:
+#   IMAGE_API=registry.../myblock-api:<sha> \
+#   IMAGE_ADMIN=registry.../myblock-admin:<sha> \
+#   docker compose -f docker-compose.dev.yml up -d
+# ─────────────────────────────────────────────────────────
+
+services:
+
+  # ── API ─────────────────────────────────────────────────
+  api:
+    image: ${IMAGE_API}
+    container_name: myblock-api
+    restart: unless-stopped
+    expose:
+      # Only exposed internally — nginx proxies inbound traffic.
+      # Not binding to host port avoids accidental direct access.
+      - "3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # All secrets loaded from /opt/myblock/.env on the Droplet.
+      # The CI deploy step does: docker compose --env-file .env up -d
+      MONGODB_URI: ${MONGODB_URI}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      # Optional — only set these in .env if Firebase / Resend are configured
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL:-}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+    networks:
+      - internal
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # ── Admin ────────────────────────────────────────────────
+  admin:
+    image: ${IMAGE_ADMIN}
+    container_name: myblock-admin
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # ── Redis ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: myblock-redis
+    restart: unless-stopped
+    # No port binding to host — only reachable by services on the internal network
+    expose:
+      - "6379"
+    # Persist data across restarts with append-only log
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── Nginx reverse proxy ──────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: myblock-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # nginx routing config (checked into repo alongside this file)
+      - ./nginx/proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      # SSL certs provisioned by certbot on the Droplet
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      # certbot webroot challenge directory
+      - /var/www/certbot:/var/www/certbot:ro
+    networks:
+      - internal
+    depends_on:
+      - api
+      - admin
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  redis_data:

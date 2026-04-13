@@ -1,0 +1,274 @@
+name: myblock-api CI/CD
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [develop, main]
+
+env:
+  # Image name within the DO Container Registry
+  IMAGE_NAME: myblock-api
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Job 1: Lint + Test
+  # ─────────────────────────────────────────────
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests with coverage
+        run: npm test
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # Job 2: Build Docker image
+  # Runs after test passes. Builds the production
+  # target and caches layers via GitHub's cache.
+  # ─────────────────────────────────────────────
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+
+    outputs:
+      # Pass computed tags downstream so push/deploy jobs are consistent
+      sha_tag: ${{ steps.meta.outputs.sha_tag }}
+      branch_tag: ${{ steps.meta.outputs.branch_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Sanitize branch name: slashes → dashes (e.g. feature/foo → feature-foo)
+      - name: Compute image tags
+        id: meta
+        run: |
+          SHA_TAG="${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          BRANCH=$(echo "${GITHUB_REF_NAME}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          BRANCH_TAG="${{ env.IMAGE_NAME }}:${BRANCH}"
+          echo "sha_tag=${SHA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "branch_tag=${BRANCH_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (production target)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: production
+          push: false
+          tags: |
+            ${{ steps.meta.outputs.sha_tag }}
+            ${{ steps.meta.outputs.branch_tag }}
+          # Cache layers in GitHub Actions cache — speeds up rebuilds significantly
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Export image to local Docker daemon for later push step
+          outputs: type=docker,dest=/tmp/image.tar
+
+      - name: Save image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp/image.tar
+          retention-days: 1
+
+  # ─────────────────────────────────────────────
+  # Job 3: Push to DO Container Registry
+  # Only runs on develop and main branches.
+  # ─────────────────────────────────────────────
+  push:
+    name: Push to DOCR
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp
+
+      - name: Load image into Docker daemon
+        run: docker load --input /tmp/image.tar
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DO Container Registry
+        run: doctl registry login --expiry-seconds 600
+
+      - name: Re-tag and push (SHA tag)
+        run: |
+          REGISTRY="registry.digitalocean.com/${{ secrets.REGISTRY_NAME }}"
+          docker tag "${{ needs.build.outputs.sha_tag }}" "${REGISTRY}/${{ needs.build.outputs.sha_tag }}"
+          docker push "${REGISTRY}/${{ needs.build.outputs.sha_tag }}"
+
+      - name: Re-tag and push (branch tag)
+        run: |
+          REGISTRY="registry.digitalocean.com/${{ secrets.REGISTRY_NAME }}"
+          docker tag "${{ needs.build.outputs.branch_tag }}" "${REGISTRY}/${{ needs.build.outputs.branch_tag }}"
+          docker push "${REGISTRY}/${{ needs.build.outputs.branch_tag }}"
+
+  # ─────────────────────────────────────────────
+  # Job 4: Deploy to Dev Droplet
+  # Only on develop branch, after push.
+  # ─────────────────────────────────────────────
+  deploy-dev:
+    name: Deploy → Dev
+    runs-on: ubuntu-latest
+    needs: push
+    if: github.ref == 'refs/heads/develop'
+    environment: development
+
+    steps:
+      - name: SSH deploy to dev Droplet
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            REGISTRY="registry.digitalocean.com/${{ secrets.REGISTRY_NAME }}"
+            IMAGE="${REGISTRY}/myblock-api:${{ github.sha }}"
+
+            # Pull the exact SHA-tagged image we just pushed
+            docker pull "${IMAGE}"
+
+            # Update the compose file to use the new image, then restart
+            cd /opt/myblock
+            IMAGE_API="${IMAGE}" docker compose -f docker-compose.dev.yml up -d --no-deps api
+
+            # Quick health check — wait up to 30s
+            for i in $(seq 1 6); do
+              if curl -sf http://localhost:3000/health; then
+                echo "API healthy"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Health check failed after 30s" && exit 1
+
+  # ─────────────────────────────────────────────
+  # Job 5: Deploy to Staging
+  # Only on develop branch, after dev deploy.
+  # ─────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy → Staging
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+
+    steps:
+      - name: SSH deploy to staging Droplet
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            REGISTRY="registry.digitalocean.com/${{ secrets.REGISTRY_NAME }}"
+            IMAGE="${REGISTRY}/myblock-api:${{ github.sha }}"
+
+            docker pull "${IMAGE}"
+            cd /opt/myblock
+            IMAGE_API="${IMAGE}" docker compose -f docker-compose.dev.yml up -d --no-deps api
+
+            for i in $(seq 1 6); do
+              if curl -sf http://localhost:3000/health; then
+                echo "API healthy"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Health check failed after 30s" && exit 1
+
+  # ─────────────────────────────────────────────
+  # Job 6: Deploy to Production
+  # Only on main branch. Requires manual approval
+  # via the "production" GitHub Environment.
+  #
+  # School-hours freeze: warns (does not block) if
+  # current time is 7am–4pm Pacific on weekdays.
+  # Hard-blocking would require a separate approval
+  # gate; a warning keeps the pipeline unblocked
+  # while still surfacing the risk to reviewers.
+  # ─────────────────────────────────────────────
+  deploy-prod:
+    name: Deploy → Production
+    runs-on: ubuntu-latest
+    needs: push
+    if: github.ref == 'refs/heads/main'
+    # "production" environment must be configured in GitHub repo settings
+    # with at least one required reviewer for manual approval.
+    environment: production
+
+    steps:
+      - name: School-hours deploy freeze check
+        run: |
+          # Convert UTC → Pacific (handles PST/PDT automatically via TZ)
+          HOUR=$(TZ="America/Los_Angeles" date +%H)
+          DOW=$(TZ="America/Los_Angeles" date +%u)   # 1=Mon … 5=Fri, 6=Sat, 7=Sun
+          HOUR_INT=$((10#$HOUR))
+
+          if [ "$DOW" -le 5 ] && [ "$HOUR_INT" -ge 7 ] && [ "$HOUR_INT" -lt 16 ]; then
+            echo "::warning::Deploying during school hours (7am–4pm Pacific on a weekday). Confirm this is intentional before proceeding."
+          else
+            echo "Outside school hours — deploy window is clear."
+          fi
+
+      - name: SSH deploy to production Droplet
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            REGISTRY="registry.digitalocean.com/${{ secrets.REGISTRY_NAME }}"
+            IMAGE="${REGISTRY}/myblock-api:${{ github.sha }}"
+
+            docker pull "${IMAGE}"
+            cd /opt/myblock
+            IMAGE_API="${IMAGE}" docker compose -f docker-compose.dev.yml up -d --no-deps api
+
+            for i in $(seq 1 12); do
+              if curl -sf http://localhost:3000/health; then
+                echo "API healthy"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Health check failed after 60s" && exit 1
