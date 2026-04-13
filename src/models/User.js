@@ -57,12 +57,29 @@ const userSchema = new Schema(
 
     fcmTokens: { type: [String], default: [] },
 
+    notificationPrefs: {
+      mondayLaunch: {
+        push: { type: Boolean, default: true },
+        email: { type: Boolean, default: true },
+      },
+      thursdayQueue: {
+        push: { type: Boolean, default: true },
+        email: { type: Boolean, default: true },
+      },
+      fridaySlideshow: {
+        push: { type: Boolean, default: true },
+        email: { type: Boolean, default: true },
+      },
+    },
+
     // COPPA fields
     dateOfBirth: { type: Date, default: null },
     parentEmail: { type: String, default: null },
     parentConsentAt: { type: Date, default: null },
     parentConsentToken: { type: String, default: null, select: false },
     coppaExempt: { type: Boolean, default: false },
+
+    enhancedReview: { type: Boolean, default: false },
 
     isActive: { type: Boolean, default: true },
     failedLoginAttempts: { type: Number, default: 0 },

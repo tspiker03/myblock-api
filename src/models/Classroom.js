@@ -11,6 +11,13 @@ const classroomSchema = new Schema(
     facilitatorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     seasonId: { type: String, default: null },
     isActive: { type: Boolean, default: true },
+    mode: { type: String, enum: ['school', 'club'], default: 'school' },
+    modeConfig: {
+      teamSizeMin: { type: Number, default: 5 },
+      teamSizeMax: { type: Number, default: 7 },
+      gradeHandicap: { type: Boolean, default: true },
+      customSeasonDates: { type: Boolean, default: false },
+    },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 );

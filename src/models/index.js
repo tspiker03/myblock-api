@@ -16,4 +16,7 @@ module.exports = {
   CivicTaskCompletion: require('./CivicTaskCompletion'),
   Season: require('./Season'),
   QuickRep: require('./QuickRep'),
+  Sponsor: require('./Sponsor'),
+  Prize: require('./Prize'),
+  ThresholdDraw: require('./ThresholdDraw'),
 };

@@ -18,5 +18,10 @@ router.use('/neighborhoods', require('./neighborhoods'));
 router.use('/civic-tasks', require('./civic-tasks'));
 router.use('/seasons', require('./seasons'));
 router.use('/quick-reps', require('./quick-reps'));
+router.use('/facilitator', require('./facilitator'));
+router.use('/sponsors', require('./sponsors'));
+router.use('/admin', require('./admin'));
+router.use('/reports', require('./reports'));
+router.use('/notifications', require('./notifications'));
 
 module.exports = router;

@@ -22,4 +22,11 @@ module.exports = {
   nodeEnv: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
   isTest: process.env.NODE_ENV === 'test',
+  fcmProjectId: process.env.FIREBASE_PROJECT_ID || null,
+  fcmClientEmail: process.env.FIREBASE_CLIENT_EMAIL || null,
+  fcmPrivateKey: process.env.FIREBASE_PRIVATE_KEY
+    ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    : null,
+  resendApiKey: process.env.RESEND_API_KEY || null,
+  resendFromEmail: process.env.RESEND_FROM_EMAIL || 'MyBlock <notifications@myblock.app>',
 };
