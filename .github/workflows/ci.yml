@@ -167,7 +167,7 @@ jobs:
 
             # Update the compose file to use the new image, then restart
             cd /opt/myblock
-            IMAGE_API="${IMAGE}" docker compose -f docker-compose.dev.yml up -d --no-deps api
+            IMAGE_API="${IMAGE}" IMAGE_ADMIN="${IMAGE_ADMIN:-nginx:alpine}" docker compose --env-file .env -f docker-compose.dev.yml up -d --no-deps api
 
             # Quick health check — wait up to 30s
             for i in $(seq 1 6); do
@@ -204,7 +204,7 @@ jobs:
 
             docker pull "${IMAGE}"
             cd /opt/myblock
-            IMAGE_API="${IMAGE}" docker compose -f docker-compose.dev.yml up -d --no-deps api
+            IMAGE_API="${IMAGE}" IMAGE_ADMIN="${IMAGE_ADMIN:-nginx:alpine}" docker compose --env-file .env -f docker-compose.dev.yml up -d --no-deps api
 
             for i in $(seq 1 6); do
               if curl -sf http://localhost:3000/health; then
@@ -262,7 +262,7 @@ jobs:
 
             docker pull "${IMAGE}"
             cd /opt/myblock
-            IMAGE_API="${IMAGE}" docker compose -f docker-compose.dev.yml up -d --no-deps api
+            IMAGE_API="${IMAGE}" IMAGE_ADMIN="${IMAGE_ADMIN:-nginx:alpine}" docker compose --env-file .env -f docker-compose.dev.yml up -d --no-deps api
 
             for i in $(seq 1 12); do
               if curl -sf http://localhost:3000/health; then
